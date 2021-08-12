@@ -360,6 +360,8 @@ class Requester:
         self.__userAgent = user_agent
         self.__verify = verify
 
+        self.automatic_token_refresh = True
+
     def _must_refresh_token(self) -> bool:
         """Check if it is time to refresh the API token gotten from the GitHub app installation"""
         if not self.__installation_authorization:
@@ -615,6 +617,8 @@ class Requester:
         return status, responseHeaders, output
 
     def __requestRaw(self, cnx, verb, url, requestHeaders, input):
+        if self.automatic_token_refresh:
+            self._refresh_token_if_needed()
         original_cnx = cnx
         if cnx is None:
             cnx = self.__createConnection()

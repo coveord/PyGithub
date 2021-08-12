@@ -51,6 +51,7 @@ class Requester:
     __installation_authorization: Optional[InstallationAuthorization]
     __app_id: Optional[Union[int, str]]
     __app_private_key: Optional[str]
+    automatic_token_refresh: bool
     def DEBUG_ON_RESPONSE(
         self, statusCode: int, responseHeader: Dict[str, str], data: str
     ) -> None: ...
