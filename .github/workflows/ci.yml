@@ -28,6 +28,11 @@ jobs:
           - {python-version: "3.8", os: "windows-latest", os-label: "Windows"}
           - {python-version: "3.8", os: "macos-latest", os-label: "macOS"}
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@v3
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -49,6 +54,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test]
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - name: "Noop"
         run: true
         shell: bash
@@ -58,6 +68,11 @@ jobs:
     needs: test_success
     if: github.ref == 'refs/heads/main'
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: release-drafter/release-drafter@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
