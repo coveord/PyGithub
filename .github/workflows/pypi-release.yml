@@ -14,6 +14,11 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/download-artifact@v3
         with:
           name: package
