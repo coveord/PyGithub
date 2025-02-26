@@ -16,7 +16,9 @@
 # Copyright 2023 Mark Amery <markamery@btinternet.com>                         #
 # Copyright 2023 Trim21 <trim21.me@gmail.com>                                  #
 # Copyright 2023 YugoHino <henom06@gmail.com>                                  #
+# Copyright 2024 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2024 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -54,17 +56,17 @@ class Enterprise(NonCompletableGithubObject):
 
     """
 
+    def _initAttributes(self) -> None:
+        self._enterprise: Attribute[str] = NotSet
+        self._url: Attribute[str] = NotSet
+
     def __init__(
         self,
         requester: Requester,
         enterprise: str,
     ):
         enterprise = urllib.parse.quote(enterprise)
-        super().__init__(requester, {}, {"enterprise": enterprise, "url": f"/enterprises/{enterprise}"}, True)
-
-    def _initAttributes(self) -> None:
-        self._enterprise: Attribute[str] = NotSet
-        self._url: Attribute[str] = NotSet
+        super().__init__(requester, {}, {"enterprise": enterprise, "url": f"/enterprises/{enterprise}"})
 
     def __repr__(self) -> str:
         return self.get__repr__({"enterprise": self._enterprise.value})

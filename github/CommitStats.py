@@ -13,6 +13,7 @@
 # Copyright 2020 Steve Kowalik <steven@wedontsleep.org>                        #
 # Copyright 2023 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2023 Trim21 <trim21.me@gmail.com>                                  #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -40,12 +41,17 @@ from github.GithubObject import Attribute, NonCompletableGithubObject, NotSet
 class CommitStats(NonCompletableGithubObject):
     """
     This class represents CommitStats.
+
+    The OpenAPI schema can be found at
+    - /components/schemas/commit/properties/stats
+    - /components/schemas/gist-history/properties/change_status
+
     """
 
     def _initAttributes(self) -> None:
-        self._total: Attribute[int] = NotSet
-        self._deletions: Attribute[int] = NotSet
         self._additions: Attribute[int] = NotSet
+        self._deletions: Attribute[int] = NotSet
+        self._total: Attribute[int] = NotSet
 
     @property
     def additions(self) -> int:

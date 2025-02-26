@@ -3,6 +3,8 @@
 # Copyright 2023 Andrew Dawes <53574062+AndrewJDawes@users.noreply.github.com> #
 # Copyright 2023 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2023 Hemslo Wang <hemslo.wang@gmail.com>                           #
+# Copyright 2024 Enrico Minack <github@enrico.minack.dev>                      #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -23,16 +25,17 @@
 ################################################################################
 
 import pickle
-import unittest
 
 import github
 from github.PaginatedList import PaginatedList
 from github.Repository import Repository
 
+from . import Framework
+
 REPO_NAME = "PyGithub/PyGithub"
 
 
-class Pickle(unittest.TestCase):
+class Pickle(Framework.TestCase):
     def testPickleGithub(self):
         gh = github.Github()
         gh2 = pickle.loads(pickle.dumps(gh))
@@ -42,8 +45,8 @@ class Pickle(unittest.TestCase):
         self.assertEqual(len(gh2._Github__requester._Requester__custom_connections), 0)
 
     def testPickleRepository(self):
-        gh = github.Github()
-        repo = gh.get_repo(REPO_NAME, lazy=True)
+        gh = github.Github(lazy=True)
+        repo = gh.get_repo(REPO_NAME)
         repo2 = pickle.loads(pickle.dumps(repo))
         self.assertIsInstance(repo2, Repository)
         self.assertIsNotNone(repo2._requester._Requester__connection_lock)

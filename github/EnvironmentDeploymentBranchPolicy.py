@@ -4,7 +4,9 @@
 # Copyright 2023 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
 # Copyright 2023 Trim21 <trim21.me@gmail.com>                                  #
 # Copyright 2023 alson <git@alm.nufan.net>                                     #
+# Copyright 2024 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2024 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -39,25 +41,25 @@ class EnvironmentDeploymentBranchPolicy(NonCompletableGithubObject):
     """
 
     def _initAttributes(self) -> None:
-        self._protected_branches: Attribute[bool] = NotSet
         self._custom_branch_policies: Attribute[bool] = NotSet
+        self._protected_branches: Attribute[bool] = NotSet
 
     def __repr__(self) -> str:
         return self.get__repr__({})
 
     @property
-    def protected_branches(self) -> bool:
-        return self._protected_branches.value
-
-    @property
     def custom_branch_policies(self) -> bool:
         return self._custom_branch_policies.value
 
+    @property
+    def protected_branches(self) -> bool:
+        return self._protected_branches.value
+
     def _useAttributes(self, attributes: Dict[str, Any]) -> None:
-        if "protected_branches" in attributes:  # pragma no branch
-            self._protected_branches = self._makeBoolAttribute(attributes["protected_branches"])
         if "custom_branch_policies" in attributes:  # pragma no branch
             self._custom_branch_policies = self._makeBoolAttribute(attributes["custom_branch_policies"])
+        if "protected_branches" in attributes:  # pragma no branch
+            self._protected_branches = self._makeBoolAttribute(attributes["protected_branches"])
 
 
 class EnvironmentDeploymentBranchPolicyParams:
