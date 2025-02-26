@@ -207,7 +207,6 @@ import github.Invitation
 import github.Issue
 import github.IssueComment
 import github.IssueEvent
-import github.Job
 import github.Label
 import github.License
 import github.MergedUpstream
@@ -245,6 +244,7 @@ import github.Team
 import github.Variable
 import github.View
 import github.Workflow
+import github.WorkflowJob
 import github.WorkflowRun
 from github import Consts
 from github.Environment import Environment
@@ -297,7 +297,6 @@ if TYPE_CHECKING:
     from github.Issue import Issue
     from github.IssueComment import IssueComment
     from github.IssueEvent import IssueEvent
-    from github.Job import Job
     from github.Label import Label
     from github.License import License
     from github.MergedUpstream import MergedUpstream
@@ -330,6 +329,7 @@ if TYPE_CHECKING:
     from github.Team import Team
     from github.View import View
     from github.Workflow import Workflow
+    from github.WorkflowJob import WorkflowJob
     from github.WorkflowRun import WorkflowRun
 
 
@@ -3672,16 +3672,16 @@ class Repository(CompletableGithubObject):
         headers, data = self._requester.requestJsonAndCheck("GET", f"{self.url}/actions/workflows/{id_or_file_name}")
         return github.Workflow.Workflow(self._requester, headers, data, completed=True)
 
-    def get_workflow_job(self, job_id: int | str) -> Job:
+    def get_workflow_job(self, job_id: int | str) -> WorkflowJob:
         """
         :calls: `GET /repos/{owner}/{repo}/actions/jobs/{job_id} <https://docs.github.com/en/rest/reference/actions#workflow-jobs>`_
         :param job_id: int or string
 
-        :rtype: :class:`github.Job.Job`
+        :rtype: :class:`github.WorkflowJob.WorkflowJob`
         """
         assert isinstance(job_id, int) or isinstance(job_id, str), job_id
         headers, data = self._requester.requestJsonAndCheck("GET", f"{self.url}/actions/jobs/{job_id}")
-        return github.Job.Job(self._requester, headers, data, completed=True)
+        return github.WorkflowJob.WorkflowJob(self._requester, headers, data, completed=True)
 
     def get_workflow_runs(
         self,
