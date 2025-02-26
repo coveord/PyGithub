@@ -1,4 +1,3 @@
-import github.AdvancedSecurity
 import github.CodeScanTool
 import github.GithubObject
 import github.SecretScanning
