@@ -15,7 +15,9 @@
 # Copyright 2021 karsten-wagner <39054096+karsten-wagner@users.noreply.github.com>#
 # Copyright 2023 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2023 Trim21 <trim21.me@gmail.com>                                  #
+# Copyright 2024 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2024 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -43,6 +45,15 @@ from github.GithubObject import Attribute, NonCompletableGithubObject, NotSet
 class Permissions(NonCompletableGithubObject):
     """
     This class represents Permissions.
+
+    The OpenAPI schema can be found at
+    - /components/schemas/collaborator/properties/permissions
+    - /components/schemas/full-repository/properties/permissions
+    - /components/schemas/minimal-repository/properties/permissions
+    - /components/schemas/repo-search-result-item/properties/permissions
+    - /components/schemas/repository/properties/permissions
+    - /components/schemas/team/properties/permissions
+
     """
 
     def _initAttributes(self) -> None:

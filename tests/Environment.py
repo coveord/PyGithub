@@ -4,6 +4,8 @@
 # Copyright 2023 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2023 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
 # Copyright 2023 alson <git@alm.nufan.net>                                     #
+# Copyright 2024 Kian-Meng Ang <kianmeng.ang@gmail.com>                        #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -83,7 +85,7 @@ class Environment(Framework.TestCase):
         self.assertEqual(protection_rules[2].wait_timer, 15)
 
     def testReviewers(self):
-        # This is necessary so we can maintain our own expectations, which have been manually editted, for this test.
+        # This is necessary so we can maintain our own expectations, which have been manually edited, for this test.
         reviewers = self.repo.get_environment("dev").protection_rules[1].reviewers
         self.assertEqual(len(reviewers), 2)
         self.assertEqual(reviewers[0].type, "User")

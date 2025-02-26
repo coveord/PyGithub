@@ -54,6 +54,12 @@
 # Copyright 2023 adosibalo <94008816+adosibalo@users.noreply.github.com>       #
 # Copyright 2024 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2024 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
+# Copyright 2024 Jonathan Kliem <jonathan.kliem@gmail.com>                     #
+# Copyright 2024 Kobbi Gal <85439776+kgal-pan@users.noreply.github.com>        #
+# Copyright 2024 Min RK <benjaminrk@gmail.com>                                 #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
+# Copyright 2025 Neel Malik <41765022+neel-m@users.noreply.github.com>         #
+# Copyright 2025 Timothy Klopotoski <tklopotoski@ebsco.com>                    #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -95,6 +101,7 @@ from typing import (
     Dict,
     Generic,
     ItemsView,
+    Iterator,
     List,
     Optional,
     Tuple,
@@ -108,7 +115,9 @@ import requests.adapters
 from urllib3 import Retry
 
 import github.Consts as Consts
+import github.GithubException
 import github.GithubException as GithubException
+from github.GithubObject import as_rest_api_attributes
 
 if TYPE_CHECKING:
     from .AppAuthentication import AppAuthentication
@@ -117,6 +126,7 @@ if TYPE_CHECKING:
     from .InstallationAuthorization import InstallationAuthorization
 
 T = TypeVar("T")
+T_gh = TypeVar("T_gh", bound="GithubObject")
 
 # For App authentication, time remaining before token expiration to request a new one
 ACCESS_TOKEN_REFRESH_THRESHOLD_SECONDS = 20
@@ -127,13 +137,19 @@ class RequestsResponse:
     def __init__(self, r: requests.Response):
         self.status = r.status_code
         self.headers = r.headers
-        self.text = r.text
+        self.response = r
 
     def getheaders(self) -> ItemsView[str, str]:
         return self.headers.items()
 
     def read(self) -> str:
-        return self.text
+        return self.response.text
+
+    def iter_content(self, chunk_size: Union[int, None] = 1) -> Iterator:
+        return self.response.iter_content(chunk_size=chunk_size)
+
+    def raise_for_status(self) -> None:
+        self.response.raise_for_status()
 
 
 class HTTPSRequestsConnectionClass:
@@ -184,11 +200,13 @@ class HTTPSRequestsConnectionClass:
         url: str,
         input: Optional[Union[str, io.BufferedReader]],
         headers: Dict[str, str],
+        stream: bool = False,
     ) -> None:
         self.verb = verb
         self.url = url
         self.input = input
         self.headers = headers
+        self.stream = stream
 
     def getresponse(self) -> RequestsResponse:
         verb = getattr(self.session, self.verb.lower())
@@ -247,11 +265,12 @@ class HTTPRequestsConnectionClass:
         )
         self.session.mount("http://", self.adapter)
 
-    def request(self, verb: str, url: str, input: None, headers: Dict[str, str]) -> None:
+    def request(self, verb: str, url: str, input: None, headers: Dict[str, str], stream: bool = False) -> None:
         self.verb = verb
         self.url = url
         self.input = input
         self.headers = headers
+        self.stream = stream
 
     def getresponse(self) -> RequestsResponse:
         verb = getattr(self.session, self.verb.lower())
@@ -389,6 +408,7 @@ class Requester:
         pool_size: Optional[int],
         seconds_between_requests: Optional[float] = None,
         seconds_between_writes: Optional[float] = None,
+        lazy: bool = False,
     ):
         self._initializeDebugFeature()
 
@@ -430,6 +450,7 @@ class Requester:
         )
         self.__userAgent = user_agent
         self.__verify = verify
+        self.__lazy = lazy
 
         self.__installation_authorization = None
 
@@ -454,7 +475,7 @@ class Requester:
         self.__custom_connections = deque()
 
     @staticmethod
-    # replace with str.removesuffix once support for Python 3.7 is dropped
+    # replace with str.removesuffix once support for Python 3.8 is dropped
     def remove_suffix(string: str, suffix: str) -> str:
         if string.endswith(suffix):
             return string[: -len(suffix)]
@@ -468,6 +489,29 @@ class Requester:
             path = Requester.remove_suffix(path, "/")
             path = Requester.remove_suffix(path, "/v3")
         return path + "/graphql"
+
+    @staticmethod
+    def get_parameters_of_url(url: str) -> Dict[str, list]:
+        query = urllib.parse.urlparse(url)[4]
+        return urllib.parse.parse_qs(query)
+
+    @staticmethod
+    def add_parameters_to_url(
+        url: str,
+        parameters: Dict[str, Any],
+    ) -> str:
+        scheme, netloc, url, params, query, fragment = urllib.parse.urlparse(url)
+        url_params = urllib.parse.parse_qs(query)
+        # union parameters in url with given parameters, the latter have precedence
+        url_params.update(**{k: v if isinstance(v, list) else [v] for k, v in parameters.items()})
+        parameter_list = [(key, value) for key, values in url_params.items() for value in values]
+        # remove query from url
+        url = urllib.parse.urlunparse((scheme, netloc, url, params, "", fragment))
+
+        if len(parameter_list) == 0:
+            return url
+        else:
+            return f"{url}?{urllib.parse.urlencode(parameter_list)}"
 
     def close(self) -> None:
         """
@@ -497,6 +541,7 @@ class Requester:
             pool_size=self.__pool_size,
             seconds_between_requests=self.__seconds_between_requests,
             seconds_between_writes=self.__seconds_between_writes,
+            lazy=self.__lazy,
         )
 
     @property
@@ -530,11 +575,32 @@ class Requester:
         Create a new requester instance with identical configuration but the given authentication method.
 
         :param auth: authentication method
-        :return: new Requester implementation
+        :return: new Requester instance
 
         """
         kwargs = self.kwargs
         kwargs.update(auth=auth)
+        return Requester(**kwargs)
+
+    @property
+    def is_lazy(self) -> bool:
+        return self.__lazy
+
+    @property
+    def is_not_lazy(self) -> bool:
+        return not self.__lazy
+
+    def withLazy(self, lazy: bool) -> "Requester":
+        """
+        Create a new requester instance with identical configuration but the given lazy setting.
+
+        :param lazy: completable objects created from this instance are lazy, as well as completable objects created
+            from those, and so on
+        :return: new Requester instance
+
+        """
+        kwargs = self.kwargs
+        kwargs.update(lazy=lazy)
         return Requester(**kwargs)
 
     def requestJsonAndCheck(
@@ -544,8 +610,28 @@ class Requester:
         parameters: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
         input: Optional[Any] = None,
+        follow_302_redirect: bool = False,
     ) -> Tuple[Dict[str, Any], Any]:
-        return self.__check(*self.requestJson(verb, url, parameters, headers, input, self.__customConnection(url)))
+        """
+        Send a request with JSON body.
+
+        :param input: request body, serialized to JSON if specified
+
+        :return: ``(headers: dict, JSON Response: Any)``
+        :raises: :class:`GithubException` for error status codes
+
+        """
+        return self.__check(
+            *self.requestJson(
+                verb,
+                url,
+                parameters,
+                headers,
+                input,
+                self.__customConnection(url),
+                follow_302_redirect=follow_302_redirect,
+            )
+        )
 
     def requestMultipartAndCheck(
         self,
@@ -555,6 +641,15 @@ class Requester:
         headers: Optional[Dict[str, Any]] = None,
         input: Optional[Dict[str, str]] = None,
     ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """
+        Send a request with multi-part-encoded body.
+
+        :param input: request body, will be multi-part encoded if specified
+
+        :return: ``(headers: dict, JSON Response: Any)``
+        :raises: :class:`GithubException` for error status codes
+
+        """
         return self.__check(*self.requestMultipart(verb, url, parameters, headers, input, self.__customConnection(url)))
 
     def requestBlobAndCheck(
@@ -566,37 +661,125 @@ class Requester:
         input: Optional[str] = None,
         cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Send a request with a file for the body.
+
+        :param input: path to a file to use for the request body
+
+        :return: ``(headers: dict, JSON Response: Any)``
+        :raises: :class:`GithubException` for error status codes
+
+        """
         return self.__check(*self.requestBlob(verb, url, parameters, headers, input, self.__customConnection(url)))
 
     def graphql_query(self, query: str, variables: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         :calls: `POST /graphql <https://docs.github.com/en/graphql>`_
         """
-        input_ = {"query": query, "variables": {"input": variables}}
+        input_ = {"query": query, "variables": variables}
 
         response_headers, data = self.requestJsonAndCheck("POST", self.graphql_url, input=input_)
         if "errors" in data:
+            if len(data["errors"]) == 1:
+                error = data["errors"][0]
+                if error.get("type") == "NOT_FOUND":
+                    raise github.UnknownObjectException(404, data, response_headers, error.get("message"))
             raise self.createException(400, response_headers, data)
         return response_headers, data
 
+    @classmethod
+    def paths_of_dict(cls, d: dict) -> dict:
+        return {key: cls.paths_of_dict(val) if isinstance(val, dict) else None for key, val in d.items()}
+
+    def data_as_class(
+        self, headers: Dict[str, Any], data: Dict[str, Any], data_path: List[str], klass: Type[T_gh]
+    ) -> T_gh:
+        for item in data_path:
+            if item not in data:
+                raise RuntimeError(f"GraphQL path {data_path} not found in data: {self.paths_of_dict(data)}")
+            data = data[item]
+        if klass.is_rest():
+            data = as_rest_api_attributes(data)
+        return klass(self, headers, data)
+
+    def graphql_node(self, node_id: str, graphql_schema: str, node_type: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        :calls: `POST /graphql <https://docs.github.com/en/graphql>`_
+        """
+        if not graphql_schema.startswith("\n"):
+            graphql_schema = f" {graphql_schema} "
+        query = (
+            """
+            query Q($id: ID!) {
+              node(id: $id) {
+                __typename
+                ... on """
+            + f"{node_type} {{{graphql_schema}}}"
+            + """
+              }
+            }
+            """
+        )
+
+        headers, data = self.graphql_query(query, {"id": node_id})
+        actual_node_type = data.get("data", {}).get("node", {}).get("__typename", node_type)
+        if actual_node_type != node_type:
+            raise github.GithubException(
+                400,
+                data,
+                message=f"Retrieved {node_type} object is of different type: {actual_node_type}",
+            )
+        return headers, data
+
+    def graphql_node_class(
+        self, node_id: str, graphql_schema: str, klass: Type[T_gh], node_type: Optional[str] = None
+    ) -> T_gh:
+        """
+        :calls: `POST /graphql <https://docs.github.com/en/graphql>`_
+        """
+        if node_type is None:
+            node_type = klass.__name__
+
+        headers, data = self.graphql_node(node_id, graphql_schema, node_type)
+        return self.data_as_class(headers, data, ["data", "node"], klass)
+
+    def graphql_query_class(
+        self, query: str, variables: Dict[str, Any], data_path: List[str], klass: Type[T_gh]
+    ) -> T_gh:
+        """
+        :calls: `POST /graphql <https://docs.github.com/en/graphql>`_
+        """
+        headers, data = self.graphql_query(query, variables)
+        return self.data_as_class(headers, data, ["data"] + data_path, klass)
+
     def graphql_named_mutation(
-        self, mutation_name: str, variables: Dict[str, Any], output: Optional[str] = None
+        self, mutation_name: str, mutation_input: Dict[str, Any], output_schema: str
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Create a mutation in the format:
-            mutation MutationName($input: MutationNameInput!) {
-                mutationName(input: $input) {
-                    <output>
-                }
+            mutation Mutation($input: MutationNameInput!) {
+                mutationName(input: $input) { <output_schema> }
             }
-        and call the self.graphql_query method
-        """
-        title = "".join([x.capitalize() for x in mutation_name.split("_")])
-        mutation_name = title[:1].lower() + title[1:]
-        output = output or ""
-        query = f"mutation {title}($input: {title}Input!) {{ {mutation_name}(input: $input) {{ {output} }} }}"
+        and call the self.graphql_query method.
 
-        return self.graphql_query(query, variables)
+        Returns the response data according to given output schema.
+        """
+        mutation_input_name = mutation_name[:1].upper() + mutation_name[1:] + "Input!"
+        query = f"mutation Mutation($input: {mutation_input_name}) {{ {mutation_name}(input: $input) {{ {output_schema} }} }}"
+        headers, data = self.graphql_query(query, {"input": mutation_input})
+        return headers, data.get("data", {}).get(mutation_name, {})
+
+    def graphql_named_mutation_class(
+        self, mutation_name: str, mutation_input: Dict[str, Any], output_schema: str, item: str, klass: Type[T_gh]
+    ) -> T_gh:
+        """
+        Executes a mutation and returns the output object as the given GithubObject.
+
+        See {@link graphql_named_mutation}.
+
+        """
+        headers, data = self.graphql_named_mutation(mutation_name, mutation_input, output_schema)
+        return self.data_as_class(headers, data, [item], klass)
 
     def __check(
         self,
@@ -645,21 +828,26 @@ class Requester:
         headers: Dict[str, Any],
         output: Dict[str, Any],
     ) -> GithubException.GithubException:
-        message = output.get("message", "").lower() if output is not None else ""
+        message = output.get("message") if output else None
+        lc_message = message.lower() if message else ""
 
+        msg = None
         exc = GithubException.GithubException
-        if status == 401 and message == "bad credentials":
+        if status == 401 and lc_message == "bad credentials":
             exc = GithubException.BadCredentialsException
         elif status == 401 and Consts.headerOTP in headers and re.match(r".*required.*", headers[Consts.headerOTP]):
             exc = GithubException.TwoFactorException
-        elif status == 403 and message.startswith("missing or invalid user agent string"):
+        elif status == 403 and lc_message.startswith("missing or invalid user agent string"):
             exc = GithubException.BadUserAgentException
-        elif status == 403 and cls.isRateLimitError(message):
+        elif status == 403 and cls.isRateLimitError(lc_message):
             exc = GithubException.RateLimitExceededException
-        elif status == 404 and message == "not found":
+        elif status == 404 and (lc_message == "not found" or "no object found" in lc_message):
             exc = GithubException.UnknownObjectException
+        else:
+            # for general GithubException, provide the actual message
+            msg = message
 
-        return exc(status, output, headers)
+        return exc(status, output, headers, msg)
 
     @classmethod
     def isRateLimitError(cls, message: str) -> bool:
@@ -698,6 +886,55 @@ class Requester:
                     raise
                 return {"data": data}
 
+    def getFile(
+        self,
+        url: str,
+        path: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
+        chunk_size: Optional[Union[int, None]] = 1,
+    ) -> None:
+        """
+        GET a file from the server and save it to the given path, which includes the filename.
+        """
+        _, _, stream_chunk_iterator = self.getStream(url, parameters, headers, cnx, chunk_size=chunk_size)
+        with open(path, "wb") as f:
+            for chunk in stream_chunk_iterator:
+                if chunk:
+                    f.write(chunk)
+
+    def getStream(
+        self,
+        url: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
+        chunk_size: Optional[Union[int, None]] = 1,
+    ) -> Tuple[int, Dict[str, Any], Iterator]:
+        """
+        GET a stream from the server.
+
+        :returns:``(status, headers, stream_chunk_iterator)``
+
+        """
+        if headers is None:
+            headers = {}
+        headers["Accept"] = "application/octet-stream"
+
+        def encode(_: Any) -> Tuple[str, str]:
+            return "", ""
+
+        status, responseHeaders, output = self.__requestEncode(
+            cnx, "GET", url, parameters, headers, None, encode, stream=True, follow_302_redirect=True
+        )
+        if isinstance(output, RequestsResponse) or (
+            hasattr(output, "iter_content") and hasattr(output, "raise_for_status")
+        ):
+            output.raise_for_status()
+            return status, responseHeaders, output.iter_content(chunk_size=chunk_size)
+        raise TypeError(f"Expected a RequestsResponse object: {type(output)}")
+
     def requestJson(
         self,
         verb: str,
@@ -706,11 +943,25 @@ class Requester:
         headers: Optional[Dict[str, Any]] = None,
         input: Optional[Any] = None,
         cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
+        follow_302_redirect: bool = False,
     ) -> Tuple[int, Dict[str, Any], str]:
+        """
+        Send a request with JSON input.
+
+        :param input: request body, will be serialized as JSON
+        :returns:``(status, headers, body)``
+
+        """
+
         def encode(input: Any) -> Tuple[str, str]:
             return "application/json", json.dumps(input)
 
-        return self.__requestEncode(cnx, verb, url, parameters, headers, input, encode)
+        status, responseHeaders, output = self.__requestEncode(
+            cnx, verb, url, parameters, headers, input, encode, follow_302_redirect=follow_302_redirect
+        )
+        if isinstance(output, str):
+            return status, responseHeaders, output
+        raise ValueError("requestJson() Expected a str, should never happen")
 
     def requestMultipart(
         self,
@@ -721,6 +972,14 @@ class Requester:
         input: Optional[Dict[str, str]] = None,
         cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
     ) -> Tuple[int, Dict[str, Any], str]:
+        """
+        Send a request with multi-part encoding.
+
+        :param input: request body, will be serialized as multipart form data
+        :returns:``(status, headers, body)``
+
+        """
+
         def encode(input: Dict[str, Any]) -> Tuple[str, str]:
             boundary = "----------------------------3c3ba8b523b2"
             eol = "\r\n"
@@ -734,7 +993,10 @@ class Requester:
             encoded_input += f"--{boundary}--{eol}"
             return f"multipart/form-data; boundary={boundary}", encoded_input
 
-        return self.__requestEncode(cnx, verb, url, parameters, headers, input, encode)
+        status, responseHeaders, output = self.__requestEncode(cnx, verb, url, parameters, headers, input, encode)
+        if isinstance(output, str):
+            return status, responseHeaders, output
+        raise ValueError("requestMultipart() Expected a str, should never happen")
 
     def requestBlob(
         self,
@@ -745,6 +1007,13 @@ class Requester:
         input: Optional[str] = None,
         cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
     ) -> Tuple[int, Dict[str, Any], str]:
+        """
+        Send a request with a file as request body.
+
+        :param input: path to a local file to use for request body
+        :returns:``(status, headers, body)``
+
+        """
         if headers is None:
             headers = {}
 
@@ -759,7 +1028,11 @@ class Requester:
 
         if input:
             headers["Content-Length"] = str(os.path.getsize(input))
-        return self.__requestEncode(cnx, verb, url, parameters, headers, input, encode)
+
+        status, responseHeaders, output = self.__requestEncode(cnx, verb, url, parameters, headers, input, encode)
+        if isinstance(output, str):
+            return status, responseHeaders, output
+        raise ValueError("requestBlob() Expected a str, should never happen")
 
     def requestMemoryBlobAndCheck(
         self,
@@ -770,13 +1043,26 @@ class Requester:
         file_like: BinaryIO,
         cnx: Optional[Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]] = None,
     ) -> Tuple[Dict[str, Any], Any]:
+        """
+        Send a request with a binary file-like for the body.
+
+        :param file_like: file-like object to use for the request body
+        :return: ``(headers: dict, JSON Response: Any)``
+        :raises: :class:`GithubException` for error status codes
+
+        """
+
         # The expected signature of encode means that the argument is ignored.
         def encode(_: Any) -> Tuple[str, Any]:
             return headers["Content-Type"], file_like
 
         if not cnx:
             cnx = self.__customConnection(url)
-        return self.__check(*self.__requestEncode(cnx, verb, url, parameters, headers, file_like, encode))
+
+        status, responseHeaders, output = self.__requestEncode(cnx, verb, url, parameters, headers, file_like, encode)
+        if isinstance(output, str):
+            return self.__check(status, responseHeaders, output)
+        raise ValueError("requestMemoryBlobAndCheck() Expected a str, should never happen")
 
     def __requestEncode(
         self,
@@ -787,7 +1073,9 @@ class Requester:
         requestHeaders: Optional[Dict[str, str]],
         input: Optional[T],
         encode: Callable[[T], Tuple[str, Any]],
-    ) -> Tuple[int, Dict[str, Any], str]:
+        stream: bool = False,
+        follow_302_redirect: bool = False,
+    ) -> Tuple[int, Dict[str, Any], Union[str, object]]:
         assert verb in ["HEAD", "GET", "POST", "PATCH", "PUT", "DELETE"]
         if parameters is None:
             parameters = {}
@@ -795,11 +1083,11 @@ class Requester:
             requestHeaders = {}
 
         if self.__auth is not None:
-            requestHeaders["Authorization"] = f"{self.__auth.token_type} {self.__auth.token}"
+            self.__auth.authentication(requestHeaders)
         requestHeaders["User-Agent"] = self.__userAgent
 
         url = self.__makeAbsoluteUrl(url)
-        url = self.__addParametersToUrl(url, parameters)
+        url = Requester.add_parameters_to_url(url, parameters)
 
         encoded_input = None
         if input is not None:
@@ -807,7 +1095,9 @@ class Requester:
 
         self.NEW_DEBUG_FRAME(requestHeaders)
 
-        status, responseHeaders, output = self.__requestRaw(cnx, verb, url, requestHeaders, encoded_input)
+        status, responseHeaders, output = self.__requestRaw(
+            cnx, verb, url, requestHeaders, encoded_input, stream=stream, follow_302_redirect=follow_302_redirect
+        )
 
         if Consts.headerRateRemaining in responseHeaders and Consts.headerRateLimit in responseHeaders:
             self.rate_limiting = (
@@ -822,7 +1112,7 @@ class Requester:
         if Consts.headerOAuthScopes in responseHeaders:
             self.oauth_scopes = responseHeaders[Consts.headerOAuthScopes].split(", ")
 
-        self.DEBUG_ON_RESPONSE(status, responseHeaders, output)
+        self.DEBUG_ON_RESPONSE(status, responseHeaders, output if isinstance(output, str) else "stream")
 
         return status, responseHeaders, output
 
@@ -833,19 +1123,20 @@ class Requester:
         url: str,
         requestHeaders: Dict[str, str],
         input: Optional[Any],
-    ) -> Tuple[int, Dict[str, Any], str]:
+        stream: bool = False,
+        follow_302_redirect: bool = False,
+    ) -> Tuple[int, Dict[str, Any], Union[str, object]]:
         self.__deferRequest(verb)
 
         try:
             original_cnx = cnx
             if cnx is None:
                 cnx = self.__createConnection()
-            cnx.request(verb, url, input, requestHeaders)
+            cnx.request(verb, url, input, requestHeaders, stream)
             response = cnx.getresponse()
-
+            output = response if stream else response.read()
             status = response.status
             responseHeaders = {k.lower(): v for k, v in response.getheaders()}
-            output = response.read()
 
             if input:
                 if isinstance(input, IOBase):
@@ -857,7 +1148,7 @@ class Requester:
                 verb == "GET" or verb == "HEAD"
             ):  # only for requests that are considered 'safe' in RFC 2616
                 time.sleep(Consts.PROCESSING_202_WAIT_TIME)
-                return self.__requestRaw(original_cnx, verb, url, requestHeaders, input)
+                return self.__requestRaw(original_cnx, verb, url, requestHeaders, input, stream=stream)
 
             if status == 301 and "location" in responseHeaders:
                 location = responseHeaders["location"]
@@ -882,8 +1173,20 @@ class Requester:
                     )
                 if self._logger.isEnabledFor(logging.INFO):
                     self._logger.info(f"Following Github server redirection from {url} to {o.path}")
-                return self.__requestRaw(original_cnx, verb, o.path, requestHeaders, input)
-
+                return self.__requestRaw(original_cnx, verb, o.path, requestHeaders, input, stream=stream)
+            if status == 302 and follow_302_redirect and "location" in responseHeaders:
+                location = responseHeaders["location"]
+                o = urllib.parse.urlparse(location)
+                cnx = self.__customConnection(location)
+                path = self.__makeAbsoluteUrl(location)
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(f"Following Github server redirection (302) from {url} to {o.path}")
+                # remove auth to not leak authentication to redirection location
+                if o.hostname != self.__hostname:
+                    del requestHeaders["Authorization"]
+                return self.__requestRaw(
+                    cnx, verb, path, requestHeaders, input, stream=stream, follow_302_redirect=True
+                )
             return status, responseHeaders, output
         finally:
             # we record the time of this request after it finished
@@ -927,6 +1230,7 @@ class Requester:
                 "uploads.github.com",
                 "status.github.com",
                 "github.com",
+                "objects.githubusercontent.com",
             ], o.hostname
             assert o.path.startswith((self.__prefix, self.__graphql_prefix, "/api/", "/login/oauth")), o.path
             assert o.port == self.__port, o.port
@@ -935,29 +1239,21 @@ class Requester:
                 url += f"?{o.query}"
         return url
 
-    def __addParametersToUrl(
-        self,
-        url: str,
-        parameters: Dict[str, Any],
-    ) -> str:
-        if len(parameters) == 0:
-            return url
-        else:
-            return f"{url}?{urllib.parse.urlencode(parameters)}"
-
     def __createConnection(
-        self,
+        self, hostname: Optional[str] = None
     ) -> Union[HTTPRequestsConnectionClass, HTTPSRequestsConnectionClass]:
-        if self.__persist and self.__connection is not None:
+        if self.__persist and self.__connection is not None and hostname is not None and hostname == self.__hostname:
             return self.__connection
 
         with self.__connection_lock:
-            if self.__connection is not None:
+            if self.__connection is not None and hostname is not None and hostname == self.__hostname:
                 if self.__persist:
                     return self.__connection
+            if self.__connection is not None:
                 self.__connection.close()
+                self.__connection = None
             self.__connection = self.__connectionClass(
-                self.__hostname,
+                hostname if hostname is not None else self.__hostname,
                 self.__port,
                 retry=self.__retry,
                 pool_size=self.__pool_size,
@@ -981,21 +1277,12 @@ class Requester:
         input: Optional[Any],
         status: Optional[int],
         responseHeaders: Dict[str, Any],
-        output: Optional[str],
+        output: Optional[Union[str, object]],
     ) -> None:
         if self._logger.isEnabledFor(logging.DEBUG):
             headersForRequest = requestHeaders.copy()
-            if "Authorization" in requestHeaders:
-                if requestHeaders["Authorization"].startswith("Basic"):
-                    headersForRequest["Authorization"] = "Basic (login and password removed)"
-                elif requestHeaders["Authorization"].startswith("token"):
-                    headersForRequest["Authorization"] = "token (oauth token removed)"
-                elif requestHeaders["Authorization"].startswith("Bearer"):
-                    headersForRequest["Authorization"] = "Bearer (jwt removed)"
-                else:  # pragma no cover (Cannot happen, but could if we add an authentication method => be prepared)
-                    headersForRequest[
-                        "Authorization"
-                    ] = "(unknown auth removed)"  # pragma no cover (Cannot happen, but could if we add an authentication method => be prepared)
+            if self.__auth:
+                self.__auth.mask_authentication(headersForRequest)
             self._logger.debug(
                 "%s %s://%s%s %s %s ==> %i %s %s",
                 verb,
@@ -1006,7 +1293,7 @@ class Requester:
                 input,
                 status,
                 responseHeaders,
-                output,
+                output if isinstance(output, str) else "stream",
             )
 
 

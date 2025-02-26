@@ -14,7 +14,9 @@
 # Copyright 2020 Steve Kowalik <steven@wedontsleep.org>                        #
 # Copyright 2023 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2023 Trim21 <trim21.me@gmail.com>                                  #
+# Copyright 2024 Enrico Minack <github@enrico.minack.dev>                      #
 # Copyright 2024 Jirka Borovec <6035284+Borda@users.noreply.github.com>        #
+# Copyright 2025 Enrico Minack <github@enrico.minack.dev>                      #
 #                                                                              #
 # This file is part of PyGithub.                                               #
 # http://pygithub.readthedocs.io/                                              #
@@ -43,12 +45,26 @@ from github.GithubObject import Attribute, NonCompletableGithubObject, NotSet
 class GitAuthor(NonCompletableGithubObject):
     """
     This class represents GitAuthors.
+
+    The OpenAPI schema can be found at
+    - /components/schemas/commit-search-result-item/properties/commit/properties/author
+    - /components/schemas/file-commit/properties/commit/properties/author
+    - /components/schemas/file-commit/properties/commit/properties/committer
+    - /components/schemas/git-commit/properties/author
+    - /components/schemas/git-commit/properties/committer
+    - /components/schemas/git-tag/properties/tagger
+    - /components/schemas/nullable-git-user
+    - /components/schemas/nullable-simple-commit/properties/author
+    - /components/schemas/nullable-simple-commit/properties/committer
+    - /components/schemas/simple-commit/properties/author
+    - /components/schemas/simple-commit/properties/committer
+
     """
 
     def _initAttributes(self) -> None:
-        self._name: Attribute[str] = NotSet
-        self._email: Attribute[str] = NotSet
         self._date: Attribute[datetime] = NotSet
+        self._email: Attribute[str] = NotSet
+        self._name: Attribute[str] = NotSet
 
     def __repr__(self) -> str:
         return self.get__repr__({"name": self._name.value})
