@@ -10,6 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'PyGithub/PyGithub'
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
+        with:
+          egress-policy: audit
+
       - name: Run top issues action
         uses: rickstaa/top-issues-action@7e8dda5d5ae3087670f9094b9724a9a091fc3ba1  # v1.3.101
         env:
