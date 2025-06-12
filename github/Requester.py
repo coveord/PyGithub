@@ -1225,12 +1225,10 @@ class Requester:
             url = f"{self.__prefix}{url}"
         else:
             o = urllib.parse.urlparse(url)
-            assert o.hostname in [
+            assert ".".join(o.hostname.split(".")[-2:]) in [
                 self.__hostname,
-                "uploads.github.com",
-                "status.github.com",
                 "github.com",
-                "objects.githubusercontent.com",
+                "githubusercontent.com",
             ], o.hostname
             assert o.path.startswith((self.__prefix, self.__graphql_prefix, "/api/", "/login/oauth")), o.path
             assert o.port == self.__port, o.port
