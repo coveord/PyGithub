@@ -1218,6 +1218,10 @@ class Requester:
         # Updates self.__last_requests with current timestamp for given verb
         self.__last_requests[verb] = datetime.now(timezone.utc).timestamp()
 
+    def __extractDomainFromHostname(self, hostname: str) -> str:
+        # Extracts the domain from a hostname
+        return ".".join(hostname.split(".")[-2:])
+
     def __makeAbsoluteUrl(self, url: str) -> str:
         # URLs generated locally will be relative to __base_url
         # URLs returned from the server will start with __base_url
@@ -1225,7 +1229,7 @@ class Requester:
             url = f"{self.__prefix}{url}"
         else:
             o = urllib.parse.urlparse(url)
-            assert ".".join(o.hostname.split(".")[-2:]) in [
+            assert self.__extractDomainFromHostname(o.hostname) in [
                 self.__hostname,
                 "github.com",
                 "githubusercontent.com",
