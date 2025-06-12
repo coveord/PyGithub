@@ -280,8 +280,6 @@ class Requester(Framework.TestCase):
             pool_size=5,
             seconds_between_requests=1.2,
             seconds_between_writes=3.4,
-            # v3: this should not be the default value, so if this has been changed in v3,
-            # change it here is well
             lazy=True,
         )
 
@@ -291,6 +289,15 @@ class Requester(Framework.TestCase):
                 exc.exception.args,
                 "AssertionError: github.com.malicious.com"
             )
+
+        for url in [
+                "github.com",
+                "uploads.github.com",
+                "status.github.com",
+                "objects.githubusercontent.com",
+                "release-assets.githubusercontent.com",
+        ]:
+            self.assertEqual(requester._Requester__makeAbsoluteUrl(f'https://{url}'), "")
 
     PrimaryRateLimitErrors = [
         "API rate limit exceeded for x.x.x.x. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.)",
